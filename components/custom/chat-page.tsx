@@ -1,7 +1,7 @@
 "use client";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { ChatSidebar } from "@/components/custom/chat-sidebar";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Button } from "../ui/button";
 import { Send, File } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -10,6 +10,7 @@ import type { Message, Conversation, ConversationMetadata } from "@/types";
 import { initConversation, fetchConversation, fetchAllConversation, sendMessage } from "@/lib/handler";
 import { base64 } from "@/lib/format";
 import Image from "next/image";
+import dynamic from "next/dynamic";
 
 interface Props {
   user: {
@@ -18,12 +19,15 @@ interface Props {
 };
 
 export function ChatPage({ user }: Props) {
+  // Code which uses Shiki for code highlighting must be imported dynamically
+  const Render = dynamic(() => import("./llm-ui"), { ssr: false });
   const [message, setMessage] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [conversation, setConversation] = useState<Conversation>();
   const [conversationList, setConversationList] = useState<ConversationMetadata[]>([]);
   const [selectedConversation, setSelectedConversation] = useState<string>("");
   const [updated, setUpdated] = useState(false);
+  const streaming = useRef(false);
 
   // Update conversation metadata on client
   const updateConversationList = async () => {
@@ -73,27 +77,28 @@ export function ChatPage({ user }: Props) {
     }
 
     const chatId = `user-${Date.now().toString()}`;
-    const userMessage: Message = { 
-      id: chatId, 
-      content: { text: message, files: await base64(files) }, 
-      isUser: true 
+    const userMessage: Message = {
+      id: chatId,
+      content: { text: message, files: await base64(files) },
+      isUser: true
     };
-    
+
     updateConversation(userMessage);
     const response = sendMessage(selectedConversation, chatId, message, files);
     setMessage("");
     setFiles([]);
-    
+
     let responseText = "";
     try {
       for await (const chunk of response) {
         responseText += chunk.data;
-        const assistantMessage: Message = { 
-          id: chunk.id, 
-          content: { text: responseText }, 
-          isUser: false 
+        const assistantMessage: Message = {
+          id: chunk.id,
+          content: { text: responseText },
+          isUser: false,
         };
         updateConversation(assistantMessage);
+        streaming.current = chunk.streaming;
       }
     } catch (error) {
       console.error('Error processing response:', error);
@@ -146,11 +151,11 @@ export function ChatPage({ user }: Props) {
               <div className={`flex items-start gap-2 ${chatMessage.isUser ? 'flex-row-reverse' : ''}`}>
                 {!chatMessage.isUser && (
                   <div className="w-6 h-6 rounded-full overflow-hidden flex-shrink-0 mt-1">
-                    <Image 
-                      src="/nexus.webp" 
-                      width={24} 
-                      height={24} 
-                      alt="Spacey" 
+                    <Image
+                      src="/nexus.webp"
+                      width={24}
+                      height={24}
+                      alt="Spacey"
                       className="w-full h-full object-cover"
                     />
                   </div>
@@ -160,7 +165,7 @@ export function ChatPage({ user }: Props) {
                     {chatMessage.isUser ? "You" : "Spacey"}
                   </h3>
                   <div className={`${chatMessage.isUser ? 'bg-blue-600 rounded-xl px-4 py-2' : ''}`}>
-                    <Markdown>{chatMessage.content.text}</Markdown>
+                    <Render message={chatMessage.content.text!} isStreamFinished={streaming.current} />
                   </div>
                 </div>
               </div>
@@ -179,8 +184,8 @@ export function ChatPage({ user }: Props) {
               onChange={(e) => setMessage(e.target.value)}
               onKeyDown={handleKeyDown}
             />
-            <Button 
-              className="w-fit flex gap-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl" 
+            <Button
+              className="w-fit flex gap-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl"
               onClick={handleSubmit}
             >
               <Send className="h-4 w-4" />

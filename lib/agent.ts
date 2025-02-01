@@ -16,14 +16,11 @@ async function imageParts(imageList: string[]) {
 
 export async function generateTitle(message: CoreMessage) {
   const model = "meta-llama/Llama-3.2-3B-Instruct";
-  const system = "Generate a short title consisting of at most 3 words from the given prompt.";
+  const system = "Generate a short title consisting of at most 3 words from the given prompt. It must be short and meaningful.";
   const aiResponse = hf.chatCompletion({
     model,
     system,
     messages: [message],
-    temperature: 0.5,
-    max_tokens: 2048,
-    top_p: 0.7,
   });
   return (await aiResponse).choices[0].message.content || "Untitled";
 }
@@ -88,9 +85,6 @@ export async function* streamAIResponse(
     model,
     system,
     messages,
-    temperature: 0.5,
-    max_tokens: 2048,
-    top_p: 0.7,
   });
 
   // Generates a title
@@ -100,7 +94,11 @@ export async function* streamAIResponse(
   for await (const chunk of aiResponse) {
     if (chunk.choices && chunk.choices.length > 0) {
       const newContent = chunk.choices[0].delta.content;
-      yield { type: "text", text: newContent };
+      if (chunk.choices[0].finish_reason === "stop") {
+        yield { type: "text", text: newContent, streaming: false };
+      } else {
+        yield { type: "text", text: newContent, streaming: true }
+      }
     }
   }
 }
